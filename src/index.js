@@ -33,7 +33,7 @@ export default {
       }
 
       const model = (env.GEMINI_MODEL || "gemini-2.5-flash").trim();
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
       let upstream;
       try {
         upstream = await fetch(endpoint, {
@@ -52,19 +52,21 @@ export default {
         return json({ error: "ما كدرت أتصل بخدمة الذكاء الاصطناعي. جرّب بعد شوي." }, 502);
       }
 
-      const data = await upstream.json().catch(() => ({}));
       if (!upstream.ok) {
+        const data = await upstream.json().catch(() => ({}));
         const msg = data?.error?.message || "خدمة Gemini رجّعت خطأ.";
         return json({ error: `خطأ من Gemini: ${msg}` }, upstream.status === 429 ? 429 : 502);
       }
 
-      const reply = (data?.candidates?.[0]?.content?.parts || [])
-        .map(p => p.text || "")
-        .join("")
-        .trim();
-
-      if (!reply) return json({ error: "ما وصلني رد واضح. جرّب تصيغ سؤالك بطريقة ثانية." }, 502);
-      return json({ reply });
+      // Forward Gemini's SSE stream so the browser can show text as it arrives.
+      return new Response(upstream.body, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          "X-Accel-Buffering": "no"
+        }
+      });
     }
 
     // Serve the website from Cloudflare's static asset binding.
